@@ -1,8 +1,8 @@
 import os
-
 import numpy as np
 from needle import backend_ndarray as nd
 from needle import Tensor
+
 
 class Dictionary(object):
     """
@@ -25,7 +25,11 @@ class Dictionary(object):
         Returns the word's unique ID.
         """
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        if word not in self.word2idx:
+            # Add new word
+            self.idx2word.append(word)
+            self.word2idx[word] = len(self.idx2word) - 1
+        return self.word2idx[word]
         ### END YOUR SOLUTION
 
     def __len__(self):
@@ -33,9 +37,8 @@ class Dictionary(object):
         Returns the number of unique words in the dictionary.
         """
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        return len(self.idx2word)
         ### END YOUR SOLUTION
-
 
 
 class Corpus(object):
@@ -60,7 +63,28 @@ class Corpus(object):
         ids: List of ids
         """
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        ids = []
+        
+        with open(path, 'r') as f:
+            lines_read = 0
+            for line in f:
+                # Stop if we've read max_lines
+                if max_lines is not None and lines_read >= max_lines:
+                    break
+                
+                # Split line into words
+                words = line.split()
+                
+                # Add each word to dictionary and collect IDs
+                for word in words:
+                    ids.append(self.dictionary.add_word(word))
+                
+                # Add end-of-sentence token
+                ids.append(self.dictionary.add_word('<eos>'))
+                
+                lines_read += 1
+        
+        return ids
         ### END YOUR SOLUTION
 
 
@@ -81,7 +105,17 @@ def batchify(data, batch_size, device, dtype):
     Returns the data as a numpy array of shape (nbatch, batch_size).
     """
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    # Calculate number of batches (trim remainder)
+    nbatch = len(data) // batch_size
+    
+    # Trim data to fit evenly into batches
+    data = data[:nbatch * batch_size]
+    
+    # Reshape into (batch_size, nbatch) then transpose to (nbatch, batch_size)
+    # This arranges sequential data into columns
+    data = np.array(data).reshape(batch_size, nbatch).T
+    
+    return data
     ### END YOUR SOLUTION
 
 
@@ -105,5 +139,21 @@ def get_batch(batches, i, bptt, device=None, dtype=None):
     target - Tensor of shape (bptt*bs,) with cached data as NDArray
     """
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    # Determine the actual sequence length (might be less than bptt at the end)
+    seq_len = min(bptt, len(batches) - 1 - i)
+    
+    # Extract data: rows from i to i+seq_len
+    data = batches[i:i+seq_len, :]
+    
+    # Extract targets: rows from i+1 to i+seq_len+1 (shifted by 1)
+    target = batches[i+1:i+seq_len+1, :]
+    
+    # Flatten target to 1D
+    target = target.flatten()
+    
+    # Convert to Tensors
+    data = Tensor(data, device=device, dtype=dtype)
+    target = Tensor(target, device=device, dtype=dtype)
+    
+    return data, target
     ### END YOUR SOLUTION

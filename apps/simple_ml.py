@@ -14,7 +14,7 @@ from apps.models import *
 import time
 device = ndl.cpu()
 
-def parse_mnist(image_filesname, label_filename):
+def parse_mnist(image_filename, label_filename):
     """Read an images and labels file in MNIST format.  See this page:
     http://yann.lecun.com/exdb/mnist/ for a description of the file format.
 
@@ -65,7 +65,7 @@ def softmax_loss(Z, y_one_hot):
 def nn_epoch(X, y, W1, W2, lr=0.1, batch=100):
     """Run a single epoch of SGD for a two-layer neural network defined by the
     weights W1 and W2 (with no bias terms):
-        logits = ReLU(X * W1) * W1
+        logits = ReLU(X * W1) * W2
     The function should use the step size lr, and the specified batch size (and
     again, without randomizing the order of X).
 
@@ -110,7 +110,41 @@ def epoch_general_cifar10(dataloader, model, loss_fn=nn.SoftmaxLoss(), opt=None)
     """
     np.random.seed(4)
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    if opt is not None:
+        model.train()
+    else:
+        model.eval()
+    
+    correct = 0
+    total_loss = 0.0
+    total_samples = 0
+    
+    for batch in dataloader:
+        X, y = batch
+        
+        # Forward pass
+        logits = model(X)
+        loss = loss_fn(logits, y)
+        
+        # Compute accuracy
+        predictions = np.argmax(logits.numpy(), axis=1)
+        correct += np.sum(predictions == y.numpy())
+        
+        # Accumulate loss
+        batch_size = y.shape[0]
+        total_loss += loss.numpy() * batch_size
+        total_samples += batch_size
+        
+        # Backward pass and update (if training)
+        if opt is not None:
+            opt.reset_grad()
+            loss.backward()
+            opt.step()
+    
+    avg_acc = correct / total_samples
+    avg_loss = total_loss / total_samples
+    
+    return avg_acc, avg_loss
     ### END YOUR SOLUTION
 
 
@@ -134,7 +168,13 @@ def train_cifar10(model, dataloader, n_epochs=1, optimizer=ndl.optim.Adam,
     """
     np.random.seed(4)
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    opt = optimizer(model.parameters(), lr=lr, weight_decay=weight_decay)
+    loss_fn_instance = loss_fn()
+    
+    for epoch in range(n_epochs):
+        avg_acc, avg_loss = epoch_general_cifar10(dataloader, model, loss_fn_instance, opt)
+    
+    return avg_acc, avg_loss
     ### END YOUR SOLUTION
 
 
@@ -153,7 +193,8 @@ def evaluate_cifar10(model, dataloader, loss_fn=nn.SoftmaxLoss):
     """
     np.random.seed(4)
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    loss_fn_instance = loss_fn()
+    return epoch_general_cifar10(dataloader, model, loss_fn_instance, opt=None)
     ### END YOUR SOLUTION
 
 
@@ -180,8 +221,71 @@ def epoch_general_ptb(data, model, seq_len=40, loss_fn=nn.SoftmaxLoss(), opt=Non
     """
     np.random.seed(4)
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    if opt is not None:
+        model.train()
+    else:
+        model.eval()
+    
+    total_loss = 0.0
+    total_correct = 0
+    total_samples = 0
+    h = None
+    
+    # Iterate over batches
+    nbatch = data.shape[0]
+    for i in range(0, nbatch - 1, seq_len):
+        # Get batch
+        X, y = ndl.data.get_batch(data, i, seq_len, device=device, dtype=dtype)
+        
+        # Forward pass
+        out, h = model(X, h)
+        
+        # Detach hidden state to prevent backprop through entire history
+        if isinstance(h, tuple):
+            h = (h[0].detach(), h[1].detach())
+        else:
+            h = h.detach()
+        
+        # Compute loss
+        loss = loss_fn(out, y)
+        
+        # Compute accuracy
+        predictions = out.numpy().argmax(axis=1)
+        correct = (predictions == y.numpy()).sum()
+        
+        # Accumulate metrics - extract scalar from loss
+        loss_val = loss.numpy()
+        if isinstance(loss_val, np.ndarray):
+            loss_val = loss_val.item()
+        
+        total_loss += loss_val * y.shape[0]
+        total_correct += correct
+        total_samples += y.shape[0]
+        
+        # Backward and optimize
+        if opt is not None:
+            opt.reset_grad()
+            loss.backward()
+            
+            # Gradient clipping if specified
+            if clip is not None:
+                for param in model.parameters():
+                    if param.grad is not None:
+                        grad_data = param.grad.numpy()
+                        grad_norm = np.linalg.norm(grad_data)
+                        if grad_norm > clip:
+                            # Scale gradient
+                            param.grad = ndl.Tensor(grad_data * (clip / grad_norm), 
+                                                   device=param.grad.device)
+            
+            opt.step()
+    
+    avg_loss = total_loss / total_samples
+    avg_acc = total_correct / total_samples
+    
+    return avg_acc, avg_loss
     ### END YOUR SOLUTION
+
 
 
 def train_ptb(model, data, seq_len=40, n_epochs=1, optimizer=ndl.optim.SGD,
@@ -207,8 +311,21 @@ def train_ptb(model, data, seq_len=40, n_epochs=1, optimizer=ndl.optim.SGD,
     """
     np.random.seed(4)
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    # Create optimizer instance
+    opt = optimizer(model.parameters(), lr=lr, weight_decay=weight_decay)
+    
+    # Create loss function instance
+    loss_fn_instance = loss_fn()
+    
+    # Train for n_epochs
+    for epoch in range(n_epochs):
+        avg_acc, avg_loss = epoch_general_ptb(data, model, seq_len=seq_len,
+                                              loss_fn=loss_fn_instance, opt=opt,
+                                              clip=clip, device=device, dtype=dtype)
+    
+    return avg_acc, avg_loss
     ### END YOUR SOLUTION
+
 
 def evaluate_ptb(model, data, seq_len=40, loss_fn=nn.SoftmaxLoss,
         device=None, dtype="float32"):
@@ -227,8 +344,17 @@ def evaluate_ptb(model, data, seq_len=40, loss_fn=nn.SoftmaxLoss,
     """
     np.random.seed(4)
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    # Create loss function instance
+    loss_fn_instance = loss_fn()
+    
+    # Evaluate without optimizer
+    avg_acc, avg_loss = epoch_general_ptb(data, model, seq_len=seq_len,
+                                          loss_fn=loss_fn_instance, opt=None,
+                                          clip=None, device=device, dtype=dtype)
+    
+    return avg_acc, avg_loss
     ### END YOUR SOLUTION
+
 
 ### CODE BELOW IS FOR ILLUSTRATION, YOU DO NOT NEED TO EDIT
 

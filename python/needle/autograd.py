@@ -1,7 +1,7 @@
 """Core data structures."""
 import needle
-from .backend_numpy import Device, cpu, all_devices
-from typing import List, Optional, NamedTuple, Tuple, Union
+from .backend_numpy import Device, all_devices
+from typing import List, Optional, NamedTuple, Tuple, Union, Dict
 from collections import namedtuple
 import numpy
 
@@ -17,7 +17,7 @@ TENSOR_COUNTER = 0
 import numpy as array_api
 NDArray = numpy.ndarray
 
-from .backend_selection import array_api, NDArray, default_device
+from .backend_selection import array_api, NDArray, default_device, cpu
 
 class Op:
     """Operator definition."""
@@ -305,7 +305,7 @@ class Tensor(Value):
     def numpy(self):
         data = self.realize_cached_data()
         if array_api is numpy:
-            return data
+            return numpy.array(data)
         return data.numpy()
 
     def __add__(self, other):
@@ -358,6 +358,10 @@ class Tensor(Value):
 
     def transpose(self, axes=None):
         return needle.ops.Transpose(axes)(self)
+        
+    def __rsub__(self, other):
+      """Handle scalar - tensor"""
+      return other + (-self)
 
 
 
@@ -381,7 +385,26 @@ def compute_gradient_of_variables(output_tensor, out_grad):
     reverse_topo_order = list(reversed(find_topo_sort([output_tensor])))
 
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    # raise NotImplementedError()
+    
+    for node in reverse_topo_order:
+        # Only process nodes that have received gradients
+        if node in node_to_output_grads_list:
+            grad_list = node_to_output_grads_list[node] 
+            if len(grad_list) == 1:
+                node_grad = grad_list[0] 
+            else:
+                node_grad = sum_node_list(grad_list)
+
+            node.grad = node_grad
+            
+            # If this node has an operation, propagate gradients to inputs
+            if node.op is not None:
+                input_grads = node.op.gradient_as_tuple(node_grad, node)
+                for i, input_node in enumerate(node.inputs):
+                    if input_node not in node_to_output_grads_list:
+                        node_to_output_grads_list[input_node] = []
+                    node_to_output_grads_list[input_node].append(input_grads[i])
     ### END YOUR SOLUTION
 
 
@@ -394,14 +417,34 @@ def find_topo_sort(node_list: List[Value]) -> List[Value]:
     sort.
     """
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    # raise NotImplementedError()
+    visited = set()
+    topo_order = []
+    
+    # Start DFS from each node in the list
+    for node in node_list:
+        topo_sort_dfs(node, visited, topo_order)
+    
+    return topo_order
     ### END YOUR SOLUTION
 
 
 def topo_sort_dfs(node, visited, topo_order):
     """Post-order DFS"""
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    # raise NotImplementedError()
+    if node in visited:
+        return
+    
+    # Mark as visited
+    visited.add(node)
+    
+    # First, recursively visit all input nodes (dependencies)
+    for input_node in node.inputs:
+        topo_sort_dfs(input_node, visited, topo_order)
+    
+    # After all dependencies are processed, add current node (post-order)
+    topo_order.append(node)
     ### END YOUR SOLUTION
 
 
